@@ -1,231 +1,357 @@
-// YouTube Preview Speed Control - Content Script
-console.log('YouTube Preview Speed Control: Script loaded');
+// content.js
+// YouTube Preview Speed Control - injection + MutationObserver
+// Drop this file into your extension and reload chrome://extensions
 
-let currentSpeed = 1.0;
-let observer = null;
+(() => {
+  "use strict";
 
-// Add styles for the speed button
-const style = document.createElement('style');
-style.textContent = `
-  .ytp-preview-speed-btn {
-    width: 40px;
-    height: 40px;
-    margin-left: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0.9;
-    transition: opacity 0.2s;
-    color: white;
-    font-size: 14px;
-    font-weight: 500;
-    text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
-    background: rgba(0, 0, 0, 0.5);
-    border: none;
-    border-radius: 4px;
-    padding: 4px 8px;
+  // === CONFIG ===
+  const SPEEDS = [0.5, 1, 1.5, 2];
+  const BUTTON_CLASS = "yc-preview-speed-btn";
+  const PROCESSED_ATTR = "data-yc-processed";
+  // Max time to wait for preview overlay after hover (ms)
+  const PREVIEW_TIMEOUT = 8000;
+
+  // Inline styles to match YouTube-ish look (kept small)
+  const BUTTON_STYLES = `
+    .${BUTTON_CLASS} {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 36px;
+      height: 36px;
+      padding: 0 8px;
+      margin-left: 6px;
+      border-radius: 4px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      transition: background 120ms ease, opacity 120ms ease;
+      opacity: 0.95;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset;
+    }
+    .${BUTTON_CLASS}:hover { background: rgba(255,255,255,0.08); opacity: 1; }
+    .${BUTTON_CLASS}[data-hidden="true"] { display: none !important; }
+  `;
+
+  // === STATE ===
+  let currentSpeedIndex = 1; // default 1x index
+  // Write style once
+  function injectStyles() {
+    if (document.getElementById("yc-preview-speed-styles")) return;
+    const style = document.createElement("style");
+    style.id = "yc-preview-speed-styles";
+    style.textContent = BUTTON_STYLES;
+    document.head.appendChild(style);
   }
-  .ytp-preview-speed-btn:hover {
-    opacity: 1;
-    background: rgba(0, 0, 0, 0.7);
-  }
-`;
-document.head.appendChild(style);
 
-// Function to find the preview controls container
-function findPreviewControls(thumbnail) {
-    // First try to find the preview controls container directly
-    let controls = thumbnail.closest('.ytd-thumbnail, ytd-rich-grid-media')
-                      ?.querySelector('.ytp-preview-controls');
-    
-    // If not found, try to find the preview container and then the controls
-    if (!controls) {
-        const previewContainer = thumbnail.closest('.ytp-cued-thumbnail-overlay, .ytp-preview');
-        if (previewContainer) {
-            controls = previewContainer.querySelector('.ytp-preview-controls');
-        }
-    }
-    
-    // If still not found, look for the preview controls in the document
-    if (!controls) {
-        controls = document.querySelector('.ytp-preview-controls');
-    }
-    
-    return controls;
-}
-
-// Function to add speed button to preview overlay
-function addSpeedButtonToPreview(thumbnail) {
-    console.log('Attempting to add speed button to preview');
-    
-    // Find the preview controls container
-    const controlsContainer = findPreviewControls(thumbnail);
-    if (!controlsContainer) {
-        console.log('No preview controls container found');
-        return;
-    }
-
-    // Check if we've already added the button
-    if (controlsContainer.querySelector('.ytp-preview-speed-btn')) {
-        console.log('Speed button already exists');
-        return;
-    }
-    
-    console.log('Found preview controls container:', controlsContainer);
-
-    // Create the speed button
-    const speedButton = document.createElement('button');
-    speedButton.className = 'ytp-preview-speed-btn';
-    speedButton.textContent = `${currentSpeed}x`;
-    speedButton.setAttribute('aria-label', `Playback speed: ${currentSpeed}x`);
-    speedButton.title = `Speed: ${currentSpeed}x`;
-    
-    // Insert the button in the controls
-    controlsContainer.appendChild(speedButton);
-    console.log('Speed button added to DOM');
-
-    // Add click handler
-    speedButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
-        const currentIndex = speeds.indexOf(currentSpeed);
-        const newIndex = (currentIndex + 1) % speeds.length;
-        currentSpeed = speeds[newIndex];
-        
-        // Update button
-        speedButton.textContent = `${currentSpeed}x`;
-        speedButton.setAttribute('aria-label', `Playback speed: ${currentSpeed}x`);
-        speedButton.title = `Speed: ${currentSpeed}x`;
-        
-        // Find and update video speed
-        const video = previewContainer.querySelector('video') || 
-                     document.querySelector('video.html5-main-video');
-        
-        if (video) {
-            console.log('Setting video speed to:', currentSpeed);
-            video.playbackRate = currentSpeed;
+  // Load saved speed index
+  function loadSavedSpeed() {
+    if (!chrome?.storage?.local) return Promise.resolve();
+    return new Promise((res) => {
+      chrome.storage.local.get(["previewSpeedIndex"], (o) => {
+        if (o && typeof o.previewSpeedIndex === "number") {
+          currentSpeedIndex = o.previewSpeedIndex;
         } else {
-            console.log('No video element found');
+          currentSpeedIndex = 1; // default 1x
         }
-        
-        // Save preference
-        chrome.storage.sync.set({ previewPlaybackSpeed: currentSpeed });
+        res();
+      });
     });
-}
+  }
 
-// Watch for preview hover events
-function setupPreviewObserver() {
-    console.log('Setting up mutation observer');
-    
-    observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-            mutation.addedNodes.forEach((node) => {
-                if (node.nodeType === 1) { // Element node
-                    // Check if this is a thumbnail or preview element
-                    const thumbnail = node.matches('ytd-thumbnail, .ytp-cued-thumbnail-overlay, .ytp-preview, ytd-rich-grid-media') ? 
-                        node : 
-                        node.closest('ytd-thumbnail, .ytp-cued-thumbnail-overlay, .ytp-preview, ytd-rich-grid-media');
-                    
-                    if (thumbnail) {
-                        console.log('Preview element found, will add speed button');
-                        // Small delay to ensure preview is fully loaded
-                        setTimeout(() => {
-                            addSpeedButtonToPreview(thumbnail);
-                        }, 100);
-                    }
-                }
-            });
-        });
+  function saveSpeedIndex() {
+    if (!chrome?.storage?.local) return;
+    chrome.storage.local.set({ previewSpeedIndex: currentSpeedIndex });
+  }
+
+  // Utility: find the most plausible preview video element inside a container
+  function findPreviewVideo(container) {
+    if (!container) return null;
+    // Search for any <video> inside the container or its descendants
+    const vids = container.querySelectorAll("video");
+    if (!vids || vids.length === 0) return null;
+
+    // Prefer a playing/visible video
+    for (const v of vids) {
+      try {
+        const isVisible =
+          v.offsetParent !== null || v.getClientRects().length > 0;
+        if (!v.paused || (v.currentTime && v.currentTime > 0) || isVisible) {
+          return v;
+        }
+      } catch (e) {
+        /* ignore cross-origin-like issues */
+      }
+    }
+    // fallback: first video
+    return vids[0] || null;
+  }
+
+  // Create the speed button element
+  function createSpeedButton() {
+    const btn = document.createElement("div");
+    btn.className = BUTTON_CLASS;
+    btn.setAttribute("role", "button");
+    btn.setAttribute("aria-label", "Preview speed");
+    btn.setAttribute("tabindex", "0");
+    btn.textContent = `${SPEEDS[currentSpeedIndex]}x`;
+    // click to cycle
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      cycleSpeed(btn);
     });
+    // keyboard support
+    btn.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        cycleSpeed(btn);
+      }
+    });
+    return btn;
+  }
 
-    observer.observe(document.body, {
+  function cycleSpeed(button) {
+    currentSpeedIndex = (currentSpeedIndex + 1) % SPEEDS.length;
+    const value = SPEEDS[currentSpeedIndex];
+    button.textContent = `${value}x`;
+    saveSpeedIndex();
+    // apply speed to the currently visible preview (if any)
+    const previewRoot = button.closest("[data-yc-preview-root]");
+    const video = findPreviewVideo(previewRoot) || findPreviewVideo(document);
+    if (video) {
+      try {
+        video.playbackRate = value;
+      } catch (e) {
+        console.warn("yc: set speed failed", e);
+      }
+    }
+  }
+
+  // Find anchor (mute/unmute) inside a preview container.
+  // Prefer mute/unmute; fallback to CC/subtitles or generic button with "preview" role.
+  function findAnchorIn(container) {
+    if (!container) return null;
+    // 1) Mute/unmute based on aria-label
+    let el = container.querySelector(
+      'button[aria-label*="mute" i], button[aria-label*="unmute" i]'
+    );
+    if (el) return el;
+    // 2) Subtitles/CC button
+    el = container.querySelector(
+      'button[aria-label*="subtitle" i], button[aria-label*="subtitles" i], button[aria-label*="cc" i]'
+    );
+    if (el) return el;
+    // 3) Any button that appears visually in the control cluster (heuristic)
+    const possible = container.querySelectorAll("button");
+    if (possible.length > 0) {
+      // try to find one inside a controls wrapper
+      for (const b of possible) {
+        const role = b.getAttribute("role") || "";
+        if (role.toLowerCase().includes("button")) return b;
+      }
+      return possible[0];
+    }
+    return null;
+  }
+
+  // Insert speed button next to anchor (in same parent). We attach a preview-root marker to scope later.
+  function insertSpeedButtonForPreview(previewContainer) {
+    try {
+      if (
+        !previewContainer ||
+        previewContainer.querySelector(`.${BUTTON_CLASS}`)
+      )
+        return;
+
+      const anchor = findAnchorIn(previewContainer);
+      if (!anchor) return;
+
+      const parent =
+        anchor.parentElement || anchor.closest("div") || previewContainer;
+      if (!parent) return;
+
+      // Mark root so we can scope future operations
+      previewContainer.setAttribute("data-yc-preview-root", "true");
+
+      const btn = createSpeedButton();
+      // Insert after anchor if possible
+      if (anchor.nextSibling) {
+        parent.insertBefore(btn, anchor.nextSibling);
+      } else {
+        parent.appendChild(btn);
+      }
+
+      // Initially apply stored speed (if preview video is already playing)
+      const video = findPreviewVideo(previewContainer);
+      if (video) {
+        try {
+          video.playbackRate = SPEEDS[currentSpeedIndex];
+        } catch (e) {}
+      }
+
+      // Remove button if preview disappears (safety)
+      const removalObserver = new MutationObserver((muts, obs) => {
+        if (
+          !document.body.contains(previewContainer) ||
+          !previewContainer.isConnected
+        ) {
+          // preview removed from DOM
+          try {
+            btn.remove();
+          } catch (e) {}
+          obs.disconnect();
+        }
+      });
+      removalObserver.observe(document.body, {
         childList: true,
-        subtree: true
-    });
-    
-    // Also observe the main content element where YouTube loads videos
-    const content = document.querySelector('ytd-page-manager, #page-manager, #contents');
-    if (content) {
-        observer.observe(content, {
-            childList: true,
-            subtree: true
-        });
+        subtree: true,
+      });
+    } catch (err) {
+      console.warn("yc: insert error", err);
     }
-}
+  }
 
-// Check for previews on hover
-function setupHoverListener() {
-    document.addEventListener('mouseover', (e) => {
-        // Check if we're hovering over a thumbnail or a video preview
-        const thumbnail = e.target.closest('ytd-thumbnail, .ytp-cued-thumbnail-overlay, ytd-rich-grid-media, .ytp-preview, .ytp-cards-button, .ytp-preview-controls');
-        if (thumbnail) {
-            console.log('Hover detected on thumbnail/preview element');
-            // Small delay to ensure preview controls are visible
-            const tryAddButton = () => {
-                const previewControls = findPreviewControls(thumbnail);
-                if (previewControls && window.getComputedStyle(previewControls).display !== 'none') {
-                    console.log('Preview controls are visible, adding speed button');
-                    addSpeedButtonToPreview(thumbnail);
-                } else {
-                    console.log('Preview controls not visible yet, retrying...');
-                    setTimeout(tryAddButton, 100);
-                }
-            };
-            
-            // Initial delay before trying to add the button
-            setTimeout(tryAddButton, 300);
-        }
-    }, { passive: true });
-}
+  // Wait for preview overlay to appear inside a card/thumbnail. Returns a promise that resolves when anchor found or times out.
+  function waitForPreviewAndInsert(cardEl) {
+    return new Promise((resolve) => {
+      if (!cardEl) return resolve(false);
 
-// Initialize
-function init() {
-    console.log('Initializing YouTube Preview Speed Control');
-    
-    // Load saved speed
-    chrome.storage.sync.get(['previewPlaybackSpeed'], (result) => {
-        if (result.previewPlaybackSpeed) {
-            currentSpeed = result.previewPlaybackSpeed;
-            console.log('Loaded saved speed:', currentSpeed);
+      // If already processed, skip
+      if (cardEl.getAttribute(PROCESSED_ATTR) === "true") return resolve(false);
+      cardEl.setAttribute(PROCESSED_ATTR, "true");
+
+      // Strategy: look for a preview overlay container within the card (common patterns)
+      // Common overlay selectors: '#mouseover-overlay', 'ytd-thumbnail', '.ytp-preview', '.ytm-preview'
+      const findPreviewContainer = () => {
+        // search inside card for likely overlay container
+        const tries = [
+          cardEl.querySelector("#mouseover-overlay"),
+          cardEl.querySelector(".ytd-thumbnail"),
+          cardEl.querySelector(".ytp-preview"),
+          cardEl.querySelector('[id^="hover"]'),
+        ];
+        for (const t of tries) if (t) return t;
+        // fallback: sometimes preview controls are at cardEl itself
+        return cardEl;
+      };
+
+      let resolved = false;
+
+      // quick immediate attempt (in case overlay already present)
+      const immediate = findPreviewContainer();
+      if (immediate) {
+        insertSpeedButtonForPreview(immediate);
+        resolve(true);
+        return;
+      }
+
+      // otherwise observe the card for children changes until anchor appears or timeout
+      const start = Date.now();
+      const mo = new MutationObserver(() => {
+        const preview = findPreviewContainer();
+        if (preview) {
+          insertSpeedButtonForPreview(preview);
+          resolved = true;
+          mo.disconnect();
+          resolve(true);
+        } else if (Date.now() - start > PREVIEW_TIMEOUT) {
+          // try fallback attempt to search deeper (global)
+          mo.disconnect();
+          resolve(false);
         }
+      });
+
+      mo.observe(cardEl, { childList: true, subtree: true });
+
+      // also global fallback: check periodically until timeout
+      const interval = setInterval(() => {
+        if (resolved || Date.now() - start > PREVIEW_TIMEOUT) {
+          clearInterval(interval);
+          if (!resolved) resolve(false);
+        } else {
+          const preview = findPreviewContainer();
+          if (preview) {
+            insertSpeedButtonForPreview(preview);
+            resolved = true;
+            clearInterval(interval);
+            mo.disconnect();
+            resolve(true);
+          }
+        }
+      }, 200);
+    });
+  }
+
+  // Attach mouseenter handlers to cards to trigger scan
+  function attachHandlersToCard(card) {
+    if (!card || card.getAttribute("data-yc-listener") === "true") return;
+    card.setAttribute("data-yc-listener", "true");
+
+    // Hover: attempt injection (this keeps work minimal)
+    card.addEventListener("mouseenter", () => {
+      waitForPreviewAndInsert(card);
     });
 
-    // Set up observer for preview hovers
-    setupPreviewObserver();
-    setupHoverListener();
-    
-    // Also check for previews that might already be in the DOM
-    console.log('Checking for existing previews');
-    const checkExistingPreviews = setInterval(() => {
-        const previews = document.querySelectorAll('ytd-thumbnail, .ytp-cued-thumbnail-overlay, ytd-rich-grid-media');
-        console.log(`Found ${previews.length} preview elements`);
-        
-        if (previews.length > 0) {
-            previews.forEach(thumbnail => {
-                addSpeedButtonToPreview(thumbnail);
-            });
-            clearInterval(checkExistingPreviews);
-        }
-    }, 500);
-    
-    // Clean up after 10 seconds
-    setTimeout(() => {
-        clearInterval(checkExistingPreviews);
-    }, 10000);
-}
+    // Also: when keyboard-focus (for accessibility) we might want to attempt
+    card.addEventListener("focusin", () => {
+      waitForPreviewAndInsert(card);
+    });
+  }
 
-// Start when page is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-} else {
+  // Scan existing cards on page
+  function scanAndAttach() {
+    const selectors = [
+      "ytd-rich-item-renderer",
+      "ytd-video-renderer",
+      "ytd-grid-video-renderer",
+      "ytd-rich-grid-media",
+      "ytd-thumbnail",
+      "div.yt-simple-endpoint", // fallback
+    ];
+    const nodes = new Set();
+    selectors.forEach((s) => {
+      document.querySelectorAll(s).forEach((n) => nodes.add(n));
+    });
+    nodes.forEach((n) => attachHandlersToCard(n));
+  }
+
+  // Master observer: watch for new cards being added to the page
+  function startMasterObserver() {
+    const master = new MutationObserver((mutations) => {
+      // small debounce: only scan when nodes are added
+      let added = false;
+      for (const m of mutations) {
+        if (m.addedNodes && m.addedNodes.length > 0) {
+          added = true;
+          break;
+        }
+      }
+      if (added) {
+        scanAndAttach();
+      }
+    });
+
+    master.observe(document.body, { childList: true, subtree: true });
+    // initial pass
+    scanAndAttach();
+  }
+
+  // Entry
+  async function init() {
+    injectStyles();
+    await loadSavedSpeed();
+    startMasterObserver();
+    console.log("yc: YouTube Preview Speed content script initialized");
+  }
+
+  // Kickoff
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
     init();
-}
-
-// Listen for messages from popup (if any)
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'getSpeed') {
-        sendResponse({ speed: currentSpeed });
-    }
-    return true;
-});
+  }
+})();
