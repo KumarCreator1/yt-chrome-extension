@@ -33,18 +33,26 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Function to find the preview container
-function findPreviewContainer(element) {
-    // Try different selectors for different YouTube layouts
-    return element.closest([
-        'ytd-thumbnail-overlay-time-status-renderer',
-        '.ytp-cued-thumbnail-overlay',
-        '.ytp-preview',
-        '.ytp-preview-controls',
-        'ytd-rich-grid-media',
-        'ytd-thumbnail',
-        'ytd-video-preview'
-    ].join(','));
+// Function to find the preview controls container
+function findPreviewControls(thumbnail) {
+    // First try to find the preview controls container directly
+    let controls = thumbnail.closest('.ytd-thumbnail, ytd-rich-grid-media')
+                      ?.querySelector('.ytp-preview-controls');
+    
+    // If not found, try to find the preview container and then the controls
+    if (!controls) {
+        const previewContainer = thumbnail.closest('.ytp-cued-thumbnail-overlay, .ytp-preview');
+        if (previewContainer) {
+            controls = previewContainer.querySelector('.ytp-preview-controls');
+        }
+    }
+    
+    // If still not found, look for the preview controls in the document
+    if (!controls) {
+        controls = document.querySelector('.ytp-preview-controls');
+    }
+    
+    return controls;
 }
 
 // Function to add speed button to preview overlay
@@ -52,30 +60,19 @@ function addSpeedButtonToPreview(thumbnail) {
     console.log('Attempting to add speed button to preview');
     
     // Find the preview controls container
-    const previewContainer = findPreviewContainer(thumbnail);
-    if (!previewContainer) {
-        console.log('No preview container found');
+    const controlsContainer = findPreviewControls(thumbnail);
+    if (!controlsContainer) {
+        console.log('No preview controls container found');
         return;
     }
 
     // Check if we've already added the button
-    if (previewContainer.querySelector('.ytp-preview-speed-btn')) {
+    if (controlsContainer.querySelector('.ytp-preview-speed-btn')) {
         console.log('Speed button already exists');
         return;
     }
-
-    // Find the buttons container (try multiple selectors)
-    let controlsContainer = previewContainer.querySelector('.ytp-preview-controls, .ytp-cards-button, .ytp-button, .ytp-chrome-controls');
     
-    // If no controls container found, create one
-    if (!controlsContainer) {
-        console.log('No controls container found, creating one');
-        controlsContainer = document.createElement('div');
-        controlsContainer.className = 'ytp-chrome-controls';
-        controlsContainer.style.display = 'flex';
-        controlsContainer.style.alignItems = 'center';
-        previewContainer.appendChild(controlsContainer);
-    }
+    console.log('Found preview controls container:', controlsContainer);
 
     // Create the speed button
     const speedButton = document.createElement('button');
@@ -160,12 +157,24 @@ function setupPreviewObserver() {
 // Check for previews on hover
 function setupHoverListener() {
     document.addEventListener('mouseover', (e) => {
-        const thumbnail = e.target.closest('ytd-thumbnail, .ytp-cued-thumbnail-overlay, ytd-rich-grid-media');
+        // Check if we're hovering over a thumbnail or a video preview
+        const thumbnail = e.target.closest('ytd-thumbnail, .ytp-cued-thumbnail-overlay, ytd-rich-grid-media, .ytp-preview, .ytp-cards-button, .ytp-preview-controls');
         if (thumbnail) {
-            console.log('Hover detected on thumbnail');
-            setTimeout(() => {
-                addSpeedButtonToPreview(thumbnail);
-            }, 300);
+            console.log('Hover detected on thumbnail/preview element');
+            // Small delay to ensure preview controls are visible
+            const tryAddButton = () => {
+                const previewControls = findPreviewControls(thumbnail);
+                if (previewControls && window.getComputedStyle(previewControls).display !== 'none') {
+                    console.log('Preview controls are visible, adding speed button');
+                    addSpeedButtonToPreview(thumbnail);
+                } else {
+                    console.log('Preview controls not visible yet, retrying...');
+                    setTimeout(tryAddButton, 100);
+                }
+            };
+            
+            // Initial delay before trying to add the button
+            setTimeout(tryAddButton, 300);
         }
     }, { passive: true });
 }
