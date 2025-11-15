@@ -1,229 +1,175 @@
 // YouTube Preview Speed Control - Content Script
-console.log("YouTube Speed Control: Script loaded");
+console.log('YouTube Preview Speed Control: Script loaded');
 
+// Configuration
+const SPEEDS = [0.5, 1, 1.5, 2];
+const STORAGE_KEY = 'youtubePreviewSpeed';
 let currentSpeed = 1.0;
 
-// Add Font Awesome
-const fontAwesome = document.createElement("link");
-fontAwesome.rel = "stylesheet";
-fontAwesome.href =
-  "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css";
-document.head.appendChild(fontAwesome);
-
 // Add styles for the speed button
-const style = document.createElement("style");
+const style = document.createElement('style');
 style.textContent = `
-  @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
-  
-  /* Speed control button */
-  .ytp-speed-control {
-    position: relative !important;
-    display: inline-flex !important;
-    margin-left: 8px !important;
-    width: 32px !important;
-    height: 32px !important;
-    display: flex !important;
+  .ytp-preview-speed-btn {
+    position: absolute;
+    right: 50px;
+    bottom: 10px;
+    width: 40px;
+    height: 24px;
+    background: rgba(28, 28, 28, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    color: white;
+    display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    background: rgba(28, 28, 28, 0.8) !important;
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    border-radius: 16px !important;
-    color: white !important;
-    font-size: 14px !important;
-    z-index: 100 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-    transition: all 0.2s ease !important;
-  }
-  
-  .ytp-speed-control:hover {
-    background: rgba(255, 0, 0, 0.8) !important;
-    transform: scale(1.1);
-  }
-  .ytp-speed-control:hover {
-    opacity: 1;
-  }
-  .ytp-speed-text {
     font-size: 12px;
     font-weight: 500;
-    color: white;
-    margin-left: 2px;
-    margin-right: 4px;
-    text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
     font-family: 'Roboto', Arial, sans-serif;
-    line-height: 1;
+    cursor: pointer;
+    z-index: 100;
+    opacity: 0.9;
+    transition: all 0.2s ease;
+    padding: 0 8px;
+    box-sizing: border-box;
   }
   
-  .ytp-speed-icon {
-    font-size: 14px;
-    color: white;
-  }
-  .ytp-speed-tooltip {
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(28, 28, 28, 0.9);
-    color: white;
-    padding: 5px 9px;
-    border-radius: 2px;
-    font-size: 12px;
-    white-space: nowrap;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s;
-    margin-bottom: 5px;
-  }
-  .ytp-speed-control:hover .ytp-speed-tooltip {
+  .ytp-preview-speed-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
     opacity: 1;
   }
+  
+  .ytp-preview-speed-btn:active {
+    transform: scale(0.95);
+  }
+  
+  .ytp-preview-speed-btn::after {
+    content: '×';
+    margin-left: 4px;
+    font-size: 14px;
+    opacity: 0.8;
+  }
+  
+  .ytp-preview-speed-btn.speed-05x::after { content: '0.5×'; }
+  .ytp-preview-speed-btn.speed-1x::after { content: '1×'; }
+  .ytp-preview-speed-btn.speed-15x::after { content: '1.5×'; }
+  .ytp-preview-speed-btn.speed-2x::after { content: '2×'; }
 `;
 document.head.appendChild(style);
 
-// Create speed control button
-function createSpeedButton() {
-  const speedButton = document.createElement("button");
-  speedButton.className = "ytp-button ytp-speed-control";
-  speedButton.innerHTML = `
-        <i class="fas fa-gauge-high ytp-speed-icon"></i>
-        <span class="ytp-speed-text">1x</span>
-        <div class="ytp-speed-tooltip">Speed: 1x (click to change)</div>
-    `;
-  return speedButton;
+// Load saved speed
+chrome.storage.local.get([STORAGE_KEY], (result) => {
+  if (result[STORAGE_KEY]) {
+    currentSpeed = parseFloat(result[STORAGE_KEY]);
+    console.log('Loaded saved speed:', currentSpeed);
+  }
+});
+
+// Create speed button
+function createSpeedButton(videoElement) {
+  const button = document.createElement('button');
+  button.className = 'ytp-preview-speed-btn';
+  button.setAttribute('aria-label', 'Playback speed');
+  button.setAttribute('title', 'Change playback speed (0.5×, 1×, 1.5×, 2×)');
+  
+  // Set initial speed class
+  updateButtonSpeed(button, currentSpeed);
+  
+  // Add click handler
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const currentIndex = SPEEDS.indexOf(currentSpeed);
+    const newIndex = (currentIndex + 1) % SPEEDS.length;
+    const newSpeed = SPEEDS[newIndex];
+    
+    // Update speed
+    updateSpeed(videoElement, newSpeed);
+    updateButtonSpeed(button, newSpeed);
+    
+    // Save preference
+    chrome.storage.local.set({ [STORAGE_KEY]: newSpeed });
+  });
+  
+  return button;
 }
 
-// Track if we've already added the button
-let speedButtonAdded = false;
+// Update video speed
+function updateSpeed(videoElement, speed) {
+  if (videoElement && typeof videoElement.playbackRate === 'number') {
+    videoElement.playbackRate = speed;
+    currentSpeed = speed;
+    console.log('Set preview speed to:', speed + 'x');
+  }
+}
 
-// Add speed button to preview controls
-function addSpeedButton() {
-  // If we've already added the button, don't add it again
-  if (speedButtonAdded) return;
+// Update button appearance based on speed
+function updateButtonSpeed(button, speed) {
+  // Remove all speed classes
+  button.className = button.className
+    .split(' ')
+    .filter(c => !c.startsWith('speed-'))
+    .join(' ');
+  
+  // Add current speed class
+  const speedClass = `speed-${speed.toString().replace('.', '')}x`;
+  button.classList.add(speedClass);
+}
 
-  // Try to find the time elapsed element which appears during preview
-  const timeElapsed = document.querySelector(
-    '[aria-label*="time elapsed"], [aria-label*="Time elapsed"]'
-  );
-
-  if (timeElapsed && timeElapsed.parentNode) {
-    // Remove any existing buttons first
-    const existingButtons = document.querySelectorAll(".ytp-speed-control");
-    existingButtons.forEach((btn) => btn.remove());
-
-    // Create and add the button
-    const speedButton = createSpeedButton();
-
-    // Insert right after the time elapsed element
-    timeElapsed.parentNode.insertBefore(speedButton, timeElapsed.nextSibling);
-
-    setupSpeedButton(speedButton);
-    speedButtonAdded = true;
-    console.log("Speed control button added next to time elapsed");
+// Handle preview player
+function handlePreviewPlayer(player) {
+  const video = player.querySelector('video.html5-main-video');
+  const unmuteButton = player.querySelector('button.ytp-unmute');
+  
+  if (!video || !unmuteButton) {
+    console.log('Video or unmute button not found in player');
     return;
   }
-
-  // Fallback to previous method if time elapsed element not found
-  const previewControls = document.querySelector(
-    ".ytp-preview-controls, .ytp-preview"
-  );
-
-  if (previewControls) {
-    // Remove any existing buttons first
-    const existingButtons =
-      previewControls.querySelectorAll(".ytp-speed-control");
-    existingButtons.forEach((btn) => btn.remove());
-
-    const speedButton = createSpeedButton();
-    previewControls.appendChild(speedButton);
-    setupSpeedButton(speedButton);
-    speedButtonAdded = true;
-    console.log("Speed control button added to preview controls (fallback)");
-  } else {
-    console.log("Preview elements not found, will retry...");
-    setTimeout(addSpeedButton, 500);
+  
+  // Check if button already exists
+  if (player.querySelector('.ytp-preview-speed-btn')) {
+    return;
   }
-}
-
-// Setup click handler for speed button
-function setupSpeedButton(button) {
-  button.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const speeds = [0.5, 1, 1.5, 2];
-    const currentSpeedText =
-      button.querySelector(".ytp-speed-text").textContent;
-    const currentSpeed = parseFloat(currentSpeedText);
-    const currentIndex = speeds.indexOf(currentSpeed);
-    const newIndex = (currentIndex + 1) % speeds.length;
-    const newSpeed = speeds[newIndex];
-
-    // Update button text
-    button.querySelector(".ytp-speed-text").textContent = `${newSpeed}x`;
-    button.querySelector(
-      ".ytp-speed-tooltip"
-    ).textContent = `Speed: ${newSpeed}x (click to change)`;
-
-    // Update video speed
-    const video = document.querySelector("video.html5-main-video");
-    if (video) {
-      video.playbackRate = newSpeed;
-      console.log("Video speed set to:", newSpeed);
-    }
-
-    // Save preference
-    chrome.storage.sync.set({ previewSpeed: newSpeed });
-  });
-}
-
-// Watch for preview activation
-const observer = new MutationObserver((mutations) => {
-  let shouldCheck = false;
-
-  mutations.forEach((mutation) => {
-    // Check if any added nodes contain preview-related elements
-    if (mutation.addedNodes.length > 0) {
-      shouldCheck = true;
-    }
-
-    // Check if preview controls were modified
-    if (
-      mutation.type === "childList" &&
-      (mutation.target.classList.contains("ytp-preview") ||
-        mutation.target.classList.contains("ytp-preview-controls"))
-    ) {
-      shouldCheck = true;
+  
+  // Create and insert speed button
+  const speedButton = createSpeedButton(video);
+  unmuteButton.parentNode.insertBefore(speedButton, unmuteButton.nextSibling);
+  console.log('Speed button added to preview player');
+  
+  // Set initial speed
+  updateSpeed(video, currentSpeed);
+  
+  // Cleanup observer
+  const observer = new MutationObserver((mutations, obs) => {
+    if (!document.body.contains(player)) {
+      console.log('Preview player removed, disconnecting observer');
+      obs.disconnect();
     }
   });
+  
+  observer.observe(document.body, { childList: true, subtree: true });
+}
 
-  if (shouldCheck) {
-    addSpeedButton();
-  }
+// Main observer for preview players
+const mainObserver = new MutationObserver((mutations) => {
+  // Find all preview players that aren't the main player
+  const previewPlayers = Array.from(document.querySelectorAll('.html5-video-player'))
+    .filter(player => {
+      // Skip if it's the main player
+      if (player.closest('#movie_player, .html5-video-player.ytd-watch-flexy')) {
+        return false;
+      }
+      
+      // Check if it has a video element
+      return !!player.querySelector('video.html5-main-video');
+    });
+  
+  // Handle each preview player
+  previewPlayers.forEach(handlePreviewPlayer);
 });
 
-// Start observing with more specific options
-observer.observe(document.body, {
+// Start observing
+mainObserver.observe(document.body, {
   childList: true,
-  subtree: true,
-  attributes: false,
-  characterData: false,
+  subtree: true
 });
 
-// Also try to add the button immediately in case the preview is already loaded
-setTimeout(() => {
-  console.log("Initial button check");
-  addSpeedButton();
-}, 1000);
-
-// Load saved speed
-chrome.storage.sync.get(["previewSpeed"], (result) => {
-  if (result.previewSpeed) {
-    currentSpeed = result.previewSpeed;
-    console.log("Loaded saved speed:", currentSpeed);
-    // Update button text if it exists
-    const speedText = document.querySelector(".ytp-speed-text");
-    if (speedText) {
-      speedText.textContent = `${currentSpeed}x`;
-    }
-  }
-});
+console.log('YouTube Preview Speed Control: Observer started');
