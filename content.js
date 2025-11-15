@@ -99,9 +99,10 @@ function initPreviewPlayer(player) {
 
   // Add click handler
   speedBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
+    e.preventDefault();  // Prevent default action
+    e.stopPropagation(); // Stop event from bubbling up
     handleSpeedChange(speedBtn, video);
-  });
+  }, true);  // Use capture phase to catch the event early
 
   // Store reference
   activePreviews.set(player, { video, speedBtn });
