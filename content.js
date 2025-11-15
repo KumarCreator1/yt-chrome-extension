@@ -6,7 +6,7 @@ const activePreviews = new Map();
 
 // Default speed
 const DEFAULT_SPEED = 1.0;
-const SPEEDS = [0.5, 1, 1.5, 2];
+const SPEEDS = [0.5, 1, 1.5, 2,];
 
 // Add styles for the speed button
 function addStyles() {
@@ -14,30 +14,32 @@ function addStyles() {
   style.textContent = `
         .ytp-preview-speed-btn {
             position: absolute;
-            right: 60px;
-            bottom: 12px;
-            min-width: 24px;
-            height: 20px;
-            background: rgba(0, 0, 0, 0.7);
+            right:12px; /* Position to the left of CC button */
+            top: 100px;
+            width: 33px;
+            height: 33px;
+            background: transparent;
             border: none;
-            border-radius: 2px;
-            color: #fff;
-            font-size: 10px;
-            font-weight: 500;
-            font-family: 'Roboto', Arial, sans-serif;
+            border-radius: 50%;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'Roboto', 'Arial', sans-serif;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             z-index: 100;
-            opacity: 0.9;
-            transition: opacity 0.1s ease;
-            padding: 0 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            opacity: 0.8;
+            transition: all 0.15s ease;
+            padding: 0;
+            margin: 0;
+            box-shadow: none;
+            box-sizing: border-box;
         }
         .ytp-preview-speed-btn:hover {
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(28, 28, 28, 0.9);
+            transform: scale(1.1);
             opacity: 1;
         }
     `;
@@ -81,12 +83,13 @@ function initPreviewPlayer(player) {
 
   if (!video || !unmuteBtn) return;
 
-  // Create and position speed button next to unmute button
+  // Create speed button and position it in the controls bar
   const speedBtn = createSpeedButton();
-  // Insert after the unmute button
-  if (unmuteBtn.nextSibling) {
-    unmuteBtn.parentNode.insertBefore(speedBtn, unmuteBtn.nextSibling);
-  } else {
+  const controls = player.querySelector('.ytp-chrome-controls, .ytp-chrome-bottom');
+  if (controls) {
+    controls.appendChild(speedBtn);
+  } else if (unmuteBtn && unmuteBtn.parentNode) {
+    // Fallback to unmute button's parent if controls not found
     unmuteBtn.parentNode.appendChild(speedBtn);
   }
 
