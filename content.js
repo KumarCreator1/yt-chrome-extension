@@ -9,13 +9,19 @@ let currentSpeed = 1.0;
 // Add styles for the speed button
 const style = document.createElement('style');
 style.textContent = `
-  .ytp-preview-speed-btn {
+  .ytp-preview-speed-btn-container {
     position: absolute;
     right: 50px;
     bottom: 10px;
+    z-index: 1001; /* Above YouTube's preview overlay */
+    pointer-events: auto;
+  }
+  
+  .ytp-preview-speed-btn {
+    position: relative;
     width: 40px;
     height: 24px;
-    background: rgba(28, 28, 28, 0.8);
+    background: rgba(28, 28, 28, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 4px;
     color: white;
@@ -26,11 +32,14 @@ style.textContent = `
     font-weight: 500;
     font-family: 'Roboto', Arial, sans-serif;
     cursor: pointer;
-    z-index: 100;
+    z-index: 1002;
     opacity: 0.9;
     transition: all 0.2s ease;
     padding: 0 8px;
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
   }
   
   .ytp-preview-speed-btn:hover {
@@ -64,8 +73,13 @@ chrome.storage.local.get([STORAGE_KEY], (result) => {
   }
 });
 
-// Create speed button
+// Create speed button with isolated event handling
 function createSpeedButton(videoElement) {
+  // Create container to isolate button events
+  const container = document.createElement('div');
+  container.className = 'ytp-preview-speed-btn-container';
+  
+  // Create the button
   const button = document.createElement('button');
   button.className = 'ytp-preview-speed-btn';
   button.setAttribute('aria-label', 'Playback speed');
@@ -74,22 +88,55 @@ function createSpeedButton(videoElement) {
   // Set initial speed class
   updateButtonSpeed(button, currentSpeed);
   
-  // Add click handler
-  button.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const currentIndex = SPEEDS.indexOf(currentSpeed);
-    const newIndex = (currentIndex + 1) % SPEEDS.length;
-    const newSpeed = SPEEDS[newIndex];
-    
-    // Update speed
-    updateSpeed(videoElement, newSpeed);
-    updateButtonSpeed(button, newSpeed);
-    
-    // Save preference
-    chrome.storage.local.set({ [STORAGE_KEY]: newSpeed });
+  // Add all necessary event listeners to prevent event propagation
+  const events = ['click', 'mousedown', 'mouseup', 'dblclick', 'touchstart', 'pointerdown'];
+  
+  // Add event listeners to button
+  events.forEach(eventType => {
+    button.addEventListener(eventType, function(e) {
+      // Prevent all default behaviors and stop propagation
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      // For touch events, prevent any default touch behaviors
+      if (eventType === 'touchstart' && e.cancelable) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+      
+      // Only handle the click event for speed changes
+      if (eventType === 'click') {
+        const currentIndex = SPEEDS.indexOf(currentSpeed);
+        const newIndex = (currentIndex + 1) % SPEEDS.length;
+        const newSpeed = SPEEDS[newIndex];
+        
+        // Update speed
+        updateSpeed(videoElement, newSpeed);
+        updateButtonSpeed(button, newSpeed);
+        
+        // Save preference
+        chrome.storage.local.set({ [STORAGE_KEY]: newSpeed });
+      }
+      
+      return false;
+    }, { capture: true }); // Use capture phase to catch events early
   });
   
-  return button;
+  // Add button to container
+  container.appendChild(button);
+  
+  // Add event listeners to container to catch any events that might bubble
+  events.forEach(eventType => {
+    container.addEventListener(eventType, function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      return false;
+    }, true);
+  });
+  
+  return container;
 }
 
 // Update video speed
@@ -131,7 +178,14 @@ function handlePreviewPlayer(player) {
   
   // Create and insert speed button
   const speedButton = createSpeedButton(video);
-  unmuteButton.parentNode.insertBefore(speedButton, unmuteButton.nextSibling);
+  
+  // Insert after the unmute button
+  if (unmuteButton.nextSibling) {
+    unmuteButton.parentNode.insertBefore(speedButton, unmuteButton.nextSibling);
+  } else {
+    unmuteButton.parentNode.appendChild(speedButton);
+  }
+  
   console.log('Speed button added to preview player');
   
   // Set initial speed
