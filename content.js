@@ -6,7 +6,7 @@ const activePreviews = new Map();
 
 // Default speed
 const DEFAULT_SPEED = 1.0;
-const SPEEDS = [0.5, 1, 1.5, 2,];
+const SPEEDS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];
 
 // Add styles for the speed button
 function addStyles() {
