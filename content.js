@@ -83,9 +83,6 @@ function handleSpeedChange(btn, video) {
     preview.currentSpeed = newSpeed;
   }
 
-  // Save preference for future previews
-  chrome.storage.local.set({ previewSpeed: newSpeed });
-  console.log(`[SpeedControl] Speed changed to ${newSpeed}x`);
 }
 
 // Initialize preview player
@@ -99,7 +96,7 @@ function initPreviewPlayer(player) {
   const unmuteBtn = player.querySelector("button.ytp-unmute");
 
   if (!video || !unmuteBtn) return;
-  console.log("[SpeedControl] Initializing preview player", player);
+  if (!video || !unmuteBtn) return;
 
   // Create speed button and position it in the controls bar
   const speedBtn = createSpeedButton();
@@ -124,7 +121,6 @@ function initPreviewPlayer(player) {
 
   // Reset state on new video load
   const resetState = () => {
-    console.log("[SpeedControl] New video load detected - Resetting speed to 1x");
     updateButton(speedBtn, 1);
     const preview = activePreviews.get(player);
     if (preview) {
@@ -133,24 +129,18 @@ function initPreviewPlayer(player) {
   };
   video.addEventListener('loadstart', resetState);
 
-  // Get the last used speed or use default
-  chrome.storage.local.get(['previewSpeed'], (result) => {
-    const initialSpeed = result.previewSpeed || DEFAULT_SPEED;
-    
-    // Set the video speed to the stored speed
-    video.playbackRate = initialSpeed;
-    console.log(`[SpeedControl] Initial speed set to ${initialSpeed}x`);
-    
-    // Always show 1x on the button initially
-    updateButton(speedBtn, 1);
-    
-    // Store reference with current speed
-    activePreviews.set(player, { 
-      video, 
-      speedBtn,
-      currentSpeed: initialSpeed,
-      resetState
-    });
+  // Set the video speed to default
+  video.playbackRate = DEFAULT_SPEED;
+  
+  // Always show 1x on the button initially
+  updateButton(speedBtn, 1);
+  
+  // Store reference with current speed
+  activePreviews.set(player, { 
+    video, 
+    speedBtn,
+    currentSpeed: DEFAULT_SPEED,
+    resetState
   });
 
   // Clean up when player is removed
@@ -166,7 +156,6 @@ function initPreviewPlayer(player) {
 
 // Clean up preview
 function cleanupPreview(player) {
-  console.log("[SpeedControl] Cleaning up preview player");
   const preview = activePreviews.get(player);
   if (preview) {
     if (preview.video && preview.resetState) {
