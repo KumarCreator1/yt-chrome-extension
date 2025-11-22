@@ -62,21 +62,37 @@ function updateButton(btn, speed) {
 
 // Handle speed change
 function handleSpeedChange(btn, video) {
-  const currentSpeed = parseFloat(btn.textContent) || DEFAULT_SPEED;
+  // Get the preview object for this button
+  const preview = Array.from(activePreviews.values())
+    .find(p => p.speedBtn === btn || p.video === video);
+  
+  // Get current speed from the preview object or button text
+  const currentSpeed = preview?.currentSpeed || parseFloat(btn.textContent) || 1;
   const currentIndex = SPEEDS.indexOf(currentSpeed);
   const newIndex = (currentIndex + 1) % SPEEDS.length;
   const newSpeed = SPEEDS[newIndex];
 
+  // Update the video speed
   video.playbackRate = newSpeed;
+  
+  // Update the button text to show the new speed
   updateButton(btn, newSpeed);
+  
+  // Update the stored speed in the preview object
+  if (preview) {
+    preview.currentSpeed = newSpeed;
+  }
 
-  // Save preference
+  // Save preference for future previews
   chrome.storage.local.set({ previewSpeed: newSpeed });
 }
 
 // Initialize preview player
 function initPreviewPlayer(player) {
-  if (activePreviews.has(player)) return;
+  // Clean up any existing previews for this player
+  if (activePreviews.has(player)) {
+    cleanupPreview(player);
+  }
 
   const video = player.querySelector("video.html5-main-video");
   const unmuteBtn = player.querySelector("button.ytp-unmute");
@@ -93,12 +109,9 @@ function initPreviewPlayer(player) {
     unmuteBtn.parentNode.appendChild(speedBtn);
   }
 
-  // Load saved speed
-  chrome.storage.local.get(["previewSpeed"], (result) => {
-    const speed = result.previewSpeed || DEFAULT_SPEED;
-    video.playbackRate = speed;
-    updateButton(speedBtn, speed);
-  });
+  // Always start with default speed for new previews
+  video.playbackRate = DEFAULT_SPEED;
+  updateButton(speedBtn, DEFAULT_SPEED);
 
   // Add click handler
   speedBtn.addEventListener("click", (e) => {
@@ -107,8 +120,34 @@ function initPreviewPlayer(player) {
     handleSpeedChange(speedBtn, video);
   }, true);  // Use capture phase to catch the event early
 
-  // Store reference
-  activePreviews.set(player, { video, speedBtn });
+  // Reset state on new video load
+  const resetState = () => {
+    updateButton(speedBtn, 1);
+    const preview = activePreviews.get(player);
+    if (preview) {
+      preview.currentSpeed = 1;
+    }
+  };
+  video.addEventListener('loadstart', resetState);
+
+  // Get the last used speed or use default
+  chrome.storage.local.get(['previewSpeed'], (result) => {
+    const initialSpeed = result.previewSpeed || DEFAULT_SPEED;
+    
+    // Set the video speed to the stored speed
+    video.playbackRate = initialSpeed;
+    
+    // Always show 1x on the button initially
+    updateButton(speedBtn, 1);
+    
+    // Store reference with current speed
+    activePreviews.set(player, { 
+      video, 
+      speedBtn,
+      currentSpeed: initialSpeed,
+      resetState
+    });
+  });
 
   // Clean up when player is removed
   const observer = new MutationObserver((mutations, obs) => {
@@ -119,15 +158,21 @@ function initPreviewPlayer(player) {
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
-
-  console.log("Initialized preview player");
 }
 
 // Clean up preview
 function cleanupPreview(player) {
   const preview = activePreviews.get(player);
   if (preview) {
-    preview.speedBtn.remove();
+    if (preview.video && preview.resetState) {
+      preview.video.removeEventListener('loadstart', preview.resetState);
+    }
+    if (preview.speedBtn && preview.speedBtn.remove) {
+      preview.speedBtn.remove();
+    }
+    if (preview.video) {
+      preview.video.playbackRate = 1.0;
+    }
     activePreviews.delete(player);
   }
 }
