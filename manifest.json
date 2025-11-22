@@ -1,29 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "YouTube Speed Control",
+  "name": "YouTube Preview Speed Control",
   "version": "1.0.0",
-  "description": "Control playback speed for all YouTube videos from the toolbar",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "description": "Adds speed control to YouTube video previews",
+  "permissions": ["storage"],
   "host_permissions": ["*://*.youtube.com/*"],
-  "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    },
-    "default_title": "YouTube Speed Control"
-  },
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  },
   "content_scripts": [
     {
       "matches": ["*://*.youtube.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
