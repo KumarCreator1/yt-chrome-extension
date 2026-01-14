@@ -24,6 +24,7 @@ this project became my first taste of _turning imagination into execution._
 - 💾 Saves your preferred preview speed across sessions
 - 🧩 Integrates natively — looks like a part of YouTube itself
 - ⚡ Lightweight, minimal, and non-intrusive
+- ⌨️ **Keyboard Shortcuts**: Use `Shift + >` / `Shift + <` to adjust speed, or `S` to cycle
 
 ---
 
@@ -43,6 +44,10 @@ this project became my first taste of _turning imagination into execution._
 2. Find the new **Speed button** in toolbar of chrome browser (top right corner)
 1. Hover over any video thumbnail on YouTube
 1. Click to cycle speeds: **0.5x → 1x → 1.5x → 2x**
+1. **Shortcuts:**
+    - `Shift + >`: Increase speed
+    - `Shift + <`: Decrease speed
+    - `s` or `S`: Cycle speed
 1. Your choice persists for future previews
 
 ---
@@ -82,7 +87,7 @@ you just need that one weekend, one idea, and one stubborn will to make it work.
 
 # Need your Valuable Contribution
 
-- Keyboard shortcuts for preview control
+
 - Custom speed presets, a slider (user-defined)
 - Compact UI redesign for hover overlay (Bring this functionality below the caption on/off button during the preview)
 - Publish on Chrome Web Store (once refined)
