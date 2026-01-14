@@ -96,7 +96,7 @@ function initPreviewPlayer(player) {
   const unmuteBtn = player.querySelector("button.ytp-unmute");
 
   if (!video || !unmuteBtn) return;
-  if (!video || !unmuteBtn) return;
+
 
   // Create speed button and position it in the controls bar
   const speedBtn = createSpeedButton();
@@ -171,9 +171,53 @@ function cleanupPreview(player) {
   }
 }
 
-// Initialize
+// Handle keyboard shortcuts
+function onKeyDown(e) {
+  // Ignore if user is typing in an input field
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable) {
+    return;
+  }
+
+  // Find the active preview (video is playing)
+  const activePreview = Array.from(activePreviews.values()).find(p => 
+    p.video && !p.video.paused
+  );
+
+  if (!activePreview) return;
+
+  const { video, speedBtn } = activePreview;
+  const currentSpeed = video.playbackRate;
+  let newSpeed = currentSpeed;
+
+  if (e.shiftKey && (e.key === '>' || e.key === '.')) {
+    // Increase speed (Shift + >)
+    newSpeed = SPEEDS.find(s => s > currentSpeed) || SPEEDS[SPEEDS.length - 1];
+  } else if (e.shiftKey && (e.key === '<' || e.key === ',')) {
+    // Decrease speed (Shift + <)
+    newSpeed = [...SPEEDS].reverse().find(s => s < currentSpeed) || SPEEDS[0];
+  } else if (e.key.toLowerCase() === 's') {
+    // Cycle speed (S key)
+    handleSpeedChange(speedBtn, video);
+    return;
+  } else {
+    return;
+  }
+
+  // Apply new speed if changed and not handled by handleSpeedChange
+  if (newSpeed !== currentSpeed) {
+    video.playbackRate = newSpeed;
+    updateButton(speedBtn, newSpeed);
+    activePreview.currentSpeed = newSpeed;
+  }
+}
+
+
 function init() {
   addStyles();
+  
+  // Add keyboard listener
+  document.addEventListener("keydown", onKeyDown);
+
 
   // Watch for new preview players
   const observer = new MutationObserver((mutations) => {
